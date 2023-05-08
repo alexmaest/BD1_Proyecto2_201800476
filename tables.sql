@@ -6,17 +6,6 @@ CREATE TABLE producto (
   precio DECIMAL(10,2) NOT NULL
 );
 
-CREATE TABLE factura (
-  no_serie VARCHAR(255) PRIMARY KEY,
-  monto_total INT NOT NULL,
-  lugar VARCHAR(255) NOT NULL,
-  fecha_actual DATETIME NOT NULL,
-  nit INT NOT NULL,
-  forma_pago CHAR(1) NOT NULL,
-  id_orden int NOT NULL,
-  FOREIGN KEY (id_orden) REFERENCES orden(id_orden)
-);
-
 CREATE TABLE puesto (
   id_puesto INT AUTO_INCREMENT PRIMARY KEY,
   nombre VARCHAR(255) NOT NULL,
@@ -42,6 +31,20 @@ CREATE TABLE restaurante (
   telefono INT NOT NULL,
   personal INT NOT NULL,
   tiene_parqueo BOOLEAN NOT NULL
+);
+
+CREATE TABLE orden (
+  id_orden INT AUTO_INCREMENT PRIMARY KEY,
+  id_direccion_cliente INT,
+  repartidor INT,
+  fecha_recibido DATETIME NOT NULL,
+  fecha_entrega DATETIME,
+  estado VARCHAR(255) NOT NULL,
+  canal CHAR NOT NULL,
+  dpi BIGINT,
+  id_restaurante VARCHAR(255),
+  FOREIGN KEY (dpi) REFERENCES cliente(dpi),
+  FOREIGN KEY (id_restaurante) REFERENCES restaurante(id_restaurante)
 );
 
 CREATE TABLE item (
@@ -81,18 +84,22 @@ CREATE TABLE empleado (
   FOREIGN KEY (id_restaurante) REFERENCES restaurante(id_restaurante)
 );
 
-CREATE TABLE orden (
-  id_orden INT AUTO_INCREMENT PRIMARY KEY,
-  id_direccion_cliente INT,
-  repartidor INT,
-  fecha_recibido DATETIME NOT NULL,
-  fecha_entrega DATETIME,
-  estado VARCHAR(255) NOT NULL,
-  canal CHAR NOT NULL,
-  dpi BIGINT,
-  id_restaurante VARCHAR(255),
-  FOREIGN KEY (dpi) REFERENCES cliente(dpi),
-  FOREIGN KEY (id_restaurante) REFERENCES restaurante(id_restaurante)
+CREATE TABLE factura (
+  no_serie VARCHAR(255) PRIMARY KEY,
+  monto_total INT NOT NULL,
+  lugar VARCHAR(255) NOT NULL,
+  fecha_actual DATETIME NOT NULL,
+  nit VARCHAR(255) NOT NULL,
+  forma_pago VARCHAR(255) NOT NULL,
+  id_orden int NOT NULL,
+  FOREIGN KEY (id_orden) REFERENCES orden(id_orden)
+);
+
+CREATE TABLE transaccion (
+  id_transaccion INT AUTO_INCREMENT PRIMARY KEY,
+  fecha DATETIME NOT NULL,
+  descripcion VARCHAR(255) NOT NULL,
+  tipo VARCHAR(255) NOT NULL
 );
 
 INSERT INTO producto (id_producto, tipo, numero, nombre, precio) VALUES ("C1", "C", 1, "Cheeseburger", 41.00);

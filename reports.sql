@@ -15,84 +15,96 @@ END$$
 DELIMITER ;
 
 DELIMITER $$
-CREATE PROCEDURE ConsultarEmpleado(IN id_empleado INT)
+CREATE PROCEDURE ConsultarEmpleado(IN p_id_empleado INT)
 BEGIN
     DECLARE empleado_existente INT DEFAULT 0;
     DECLARE puesto_empleado VARCHAR(255);
     DECLARE salario_puesto DECIMAL(10,2);
-    SELECT COUNT(*) INTO empleado_existente FROM empleado WHERE id_empleado = id_empleado;
+    SELECT COUNT(*) INTO empleado_existente FROM empleado WHERE id_empleado = p_id_empleado;
     
     IF empleado_existente = 0 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El empleado no existe';
+      SELECT "El empleado no existe";
     ELSE
         SELECT e.id_empleado, CONCAT(e.nombres, ' ', e.apellidos) AS nombre_completo, e.fecha_nacimiento, e.correo, e.telefono, e.direccion, e.dpi, p.nombre AS nombre_puesto, e.fecha_inicio, pu.salario 
         INTO @id_empleado, @nombre_completo, @fecha_nacimiento, @correo, @telefono, @direccion, @dpi, @nombre_puesto, @fecha_inicio, @salario_puesto
         FROM empleado e
         INNER JOIN puesto p ON e.id_puesto = p.id_puesto
         INNER JOIN puesto pu ON p.id_puesto = pu.id_puesto
-        WHERE e.id_empleado = id_empleado;
+        WHERE e.id_empleado = p_id_empleado;
         SELECT @id_empleado AS IdEmpleado, @nombre_completo AS NombreCompleto, @fecha_nacimiento AS FechaNacimiento, @correo AS Correo, @telefono AS Telefono, @direccion AS Direccion, @dpi AS NumeroDPI, @nombre_puesto AS NombrePuesto, @fecha_inicio AS FechaInicio, @salario_puesto AS Salario;
     END IF;
 END$$
 DELIMITER ;
 
 DELIMITER $$
-CREATE PROCEDURE ConsultarPedidosCliente(IN cliente_dpi BIGINT)
+CREATE PROCEDURE ConsultarPedidosCliente(IN IdOrden INT)
 BEGIN
-    SELECT producto.nombre AS NombreProducto,
-           CASE producto.tipo 
-              WHEN 'C' THEN 'Combo' 
-              WHEN 'E' THEN 'Extra' 
-              WHEN 'B' THEN 'Bebida'
-              WHEN 'P' THEN 'Postre' 
-           END AS TipoProducto,
-           producto.precio AS Precio,
-           item.cantidad AS Cantidad,
-           IFNULL(item.observacion, '') AS Observacion
-    FROM orden 
-    JOIN item ON orden.id_orden = item.id_orden
-    JOIN producto ON item.id_producto = producto.id_producto
-    WHERE orden.dpi = cliente_dpi;
+  DECLARE estado_actual VARCHAR(255);
+  DECLARE existe_orden INT;
+  
+  -- Verificar si la orden existe
+  SELECT COUNT(*) INTO existe_orden FROM orden WHERE id_orden = IdOrden;
+  SELECT estado INTO estado_actual FROM orden WHERE id_orden = IdOrden;
+  
+  IF existe_orden = 0 THEN
+    SELECT 'La orden especificada no existe' AS Resultado;
+  ELSEIF estado_actual = 'SIN COBERTURA' THEN
+    SELECT "El estado de la orden es SIN COBERTURA";
+  ELSE
+    -- Obtener información de los ítems asociados a la orden
+    SELECT producto.nombre AS 'Nombre del Producto', 
+           CASE producto.tipo
+             WHEN 'C' THEN 'Combo'
+             WHEN 'E' THEN 'Extra'
+             WHEN 'B' THEN 'Bebida'
+             WHEN 'P' THEN 'Postre'
+           END AS 'Tipo Producto',
+           producto.precio AS 'Precio',
+           item.cantidad AS 'Cantidad',
+           item.observacion AS 'Observacion'
+    FROM item
+    INNER JOIN producto ON item.id_producto = producto.id_producto
+    WHERE item.id_orden = IdOrden;
+  END IF;
 END$$
 DELIMITER ;
 
 DELIMITER $$
 CREATE PROCEDURE ConsultarHistorialOrdenes(IN dpi_cliente BIGINT)
 BEGIN
-  DECLARE monto_total DECIMAL(10,2);
-  SELECT COUNT(*) INTO @count FROM cliente WHERE dpi = dpi_cliente;
-  IF @count = 0 THEN
-    SELECT 'Error: DPI de cliente no existe' AS Resultado;
+  DECLARE existe_dpi INT DEFAULT 0;
+  SELECT COUNT(*) INTO existe_dpi FROM cliente WHERE dpi = dpi_cliente;
+  
+  IF existe_dpi = 0 THEN
+    SELECT 'Error: DPI no existe en la tabla cliente' AS resultado;
   ELSE
-    SELECT o.id_orden, o.fecha_entrega, f.monto_total, o.id_restaurante, CONCAT(e.nombres, ' ', e.apellidos) AS repartidor, r.direccion AS direccion_envio, 
-    CASE o.canal
-      WHEN 'L' THEN 'Llamada'
-      WHEN 'A' THEN 'Aplicación'
-    END AS canal
-    FROM orden o
-    JOIN factura f ON f.id_orden = o.id_orden
-    JOIN empleado e ON e.id_empleado = o.repartidor
-    JOIN restaurante r ON r.id_restaurante = o.id_restaurante
-    WHERE o.dpi = dpi_cliente;
+    SELECT orden.id_orden, orden.fecha_recibido, factura.monto_total, orden.id_restaurante, 
+           CONCAT(empleado.nombres, ' ', empleado.apellidos) AS repartidor, direccion.direccion,
+           CASE orden.canal
+             WHEN 'L' THEN 'Llamada'
+             WHEN 'A' THEN 'Aplicación'
+             ELSE ''
+           END AS canal
+      FROM orden
+      LEFT JOIN factura ON orden.id_orden = factura.id_orden
+      LEFT JOIN empleado ON orden.repartidor = empleado.id_empleado
+      LEFT JOIN direccion ON orden.id_direccion_cliente = direccion.id_direccion
+     WHERE orden.dpi = dpi_cliente;
   END IF;
-END$$
+END $$
 DELIMITER ;
 
 DELIMITER $$
 CREATE PROCEDURE ConsultarDirecciones(IN dpi_cliente BIGINT)
 BEGIN
-  DECLARE direccion_cliente VARCHAR(255);
-  DECLARE municipio_cliente VARCHAR(255);
-  DECLARE zona_cliente INT;
-  
-  SELECT direccion, municipio, zona INTO direccion_cliente, municipio_cliente, zona_cliente
-  FROM direccion
-  WHERE dpi = dpi_cliente;
-  
-  IF direccion_cliente IS NULL THEN
-    SELECT "El DPI ingresado no existe en la base de datos.";
+  DECLARE count INT;
+
+  SELECT COUNT(*) INTO count FROM cliente WHERE dpi = dpi_cliente;
+
+  IF count = 0 THEN
+    SELECT 'El DPI del cliente no existe' AS Resultado;
   ELSE
-    SELECT direccion_cliente AS Direccion, municipio_cliente AS Municipio, zona_cliente AS Zona;
+    SELECT DISTINCT direccion, municipio, zona FROM direccion WHERE dpi = dpi_cliente;
   END IF;
 END$$
 DELIMITER ;
@@ -110,7 +122,8 @@ BEGIN
         WHEN 2 THEN 'AGREGANDO'
         WHEN 3 THEN 'EN CAMINO'
         WHEN 4 THEN 'ENTREGADA'
-        ELSE 'SIN COBERTURA'
+        WHEN -1 THEN 'SIN COBERTURA'
+        ELSE 'Error: El estado no existe'
     END;
 END$$
 DELIMITER ;
@@ -118,10 +131,10 @@ DELIMITER ;
 DELIMITER $$
 CREATE PROCEDURE ConsultarFacturas(IN dia INT, IN mes INT, IN anio INT)
 BEGIN
-    SELECT f.no_serie AS 'Número de serie', f.monto_total AS 'Monto total de la factura', 
-           d.municipio AS 'Lugar (municipio)', f.fecha_actual AS 'Fecha y hora actual de la factura', 
+    SELECT f.no_serie AS 'Número de serie', f.monto_total AS 'Monto total', 
+           d.municipio AS 'Municipio', f.fecha_actual AS 'Fecha y hora actual', 
            f.id_orden AS 'IdOrden', f.nit AS 'NIT del cliente', 
-           CASE f.forma_pago WHEN 'E' THEN 'Efectivo' WHEN 'T' THEN 'Tarjeta' END AS 'Forma de pago'
+           f.forma_pago AS 'Forma de pago' 
     FROM factura f
     INNER JOIN orden o ON f.id_orden = o.id_orden
     INNER JOIN direccion d ON o.id_direccion_cliente = d.id_direccion
@@ -141,4 +154,3 @@ BEGIN
   WHERE o.fecha_entrega IS NOT NULL AND TIMESTAMPDIFF(MINUTE, o.fecha_recibido, o.fecha_entrega) >= minutos;
 END$$
 DELIMITER ;
-

@@ -88,6 +88,7 @@ BEGIN
   ELSE
     INSERT INTO cliente (dpi, nombre, apellidos, fecha_nacimiento, correo, telefono, nit) 
     VALUES (p_dpi, p_nombre, p_apellidos, p_fecha_nacimiento, p_correo, p_telefono, p_nit);
+    SELECT "Cliente registrado exitosamente.";
   END IF;
 END$$
 DELIMITER ;
@@ -105,6 +106,7 @@ BEGIN
     SELECT "Error al registrar dirección. La zona debe ser un entero positivo.";
   ELSE
     INSERT INTO direccion (direccion, municipio, zona, dpi) VALUES (direccion, municipio, zona, dpi_cliente);
+    SELECT "Direccion registrada exitosamente.";
   END IF;
 END$$
 DELIMITER ;
@@ -144,6 +146,7 @@ BEGIN
     
     INSERT INTO empleado (nombres, apellidos, fecha_nacimiento, correo, telefono, direccion, dpi, fecha_inicio, id_puesto, id_restaurante) 
     VALUES (nombres, apellidos, fecha_nacimiento, correo, telefono, direccion, p_dpi, fecha_inicio, p_id_puesto, p_id_restaurante);
+    SELECT "Empleado registrado exitosamente.";
       
   END IF;
   
@@ -195,108 +198,135 @@ AgregarItem:BEGIN
   SELECT TipoProducto, Producto, Cantidad, Observacion, IdOrden, id_producto
   FROM producto
   WHERE tipo = TipoProducto AND numero = Producto;
+  
+  SELECT "Item añadido exitosamente.";
+  
 END$$
 DELIMITER ;
 
 
 DELIMITER $$
-CREATE PROCEDURE AgregarItem(
-  IN IdOrden INT,
-  IN TipoProducto CHAR(1),
-  IN Producto INT,
-  IN Cantidad INT,
-  IN Observacion VARCHAR(255)
-)
-AgregarItem:BEGIN
-  DECLARE OrdenExistente INT;
-  DECLARE EstadoActual VARCHAR(255);
-  DECLARE ProductoExistente INT;
-  
+CREATE PROCEDURE CrearOrden (IN dpi_cliente BIGINT, IN p_id_direccion_cliente INT, IN canal CHAR)
+CrearOrden1:BEGIN
+    DECLARE direccion_zona INT;
+    DECLARE direccion_municipio VARCHAR(255);
+    DECLARE restaurante_zona INT;
+    DECLARE restaurante_municipio VARCHAR(255);
+    DECLARE restaurante_id VARCHAR(255);
+    DECLARE cliente_existente INT;
+    DECLARE direccion_existente INT;
 
-  SELECT COUNT(*) INTO OrdenExistente FROM orden WHERE id_orden = IdOrden;
-  SELECT estado INTO EstadoActual FROM orden WHERE id_orden = IdOrden;
-  SELECT COUNT(*) INTO ProductoExistente FROM producto WHERE numero = Producto AND tipo = TipoProducto;
-  
-  IF OrdenExistente = 0 THEN
-    SELECT "Error al añadir item. La orden indicada no existe.";
-    LEAVE AgregarItem;
-  END IF;
+      -- Verificar si el cliente existe
+      SELECT COUNT(*) INTO cliente_existente FROM cliente WHERE dpi = dpi_cliente;
 
-  IF EstadoActual != 'INICIADA' and  EstadoActual != 'AGREGANDO' THEN
-    SELECT "Error al añadir item. No se puede agregar un item a una orden que no está en estado "INICIADA".";
-    LEAVE AgregarItem;
-  END IF;
-  
-  IF ProductoExistente = 0 THEN
-    SELECT "Error al añadir item. El producto indicado no existe.";
-    LEAVE AgregarItem;
-  END IF;
-  
-  IF Cantidad <= 0 THEN
-    SELECT "Error al añadir item. La cantidad debe ser un entero positivo.";
-    LEAVE AgregarItem;
-  END IF;
-  
-  UPDATE orden SET estado = 'AGREGANDO' WHERE id_orden = IdOrden;
-  
-  INSERT INTO item (tipo_producto, producto, cantidad, observacion, id_orden, id_producto)
-  SELECT TipoProducto, Producto, Cantidad, Observacion, IdOrden, id_producto
-  FROM producto
-  WHERE tipo = TipoProducto AND numero = Producto;
+      -- Verificar si la direccion pertenece al cliente
+      SELECT COUNT(*) INTO direccion_existente FROM direccion WHERE id_direccion = p_id_direccion_cliente AND dpi = dpi_cliente;
+
+      -- Obtener la zona y municipio de la direccion
+      SELECT zona, municipio INTO direccion_zona, direccion_municipio FROM direccion WHERE id_direccion = p_id_direccion_cliente;
+
+      -- Buscar un restaurante con la misma zona y municipio de la direccion del cliente
+      SELECT id_restaurante, zona, municipio INTO restaurante_id, restaurante_zona, restaurante_municipio FROM restaurante WHERE zona = direccion_zona AND municipio = direccion_municipio;
+
+      IF cliente_existente = 0 THEN
+         SELECT "Error al registrar orden. El cliente no existe.";
+          LEAVE CrearOrden1;
+      END IF;
+
+      IF direccion_existente = 0 THEN
+         SELECT "Error al registrar orden. La direccion no pertenece al cliente.";
+         LEAVE CrearOrden1;
+      END IF;
+      
+      IF canal != 'L' AND canal != 'A' THEN
+         SELECT "Error al registrar orden. El canal no es válido.";
+          LEAVE CrearOrden1;
+      END IF;
+      
+      
+      IF restaurante_id IS NOT NULL THEN
+          INSERT INTO orden (id_direccion_cliente, canal, dpi, id_restaurante, fecha_recibido, estado) VALUES (p_id_direccion_cliente, canal, dpi_cliente, restaurante_id, NOW(), 'INICIADA');
+          SELECT "Orden creada exitosamente.";
+      
+      ELSE
+          INSERT INTO orden (id_direccion_cliente, canal, dpi, fecha_recibido, estado) VALUES (p_id_direccion_cliente, canal, dpi_cliente, NOW(), 'SIN COBERTURA');
+          SELECT "Orden creada exitosamente.";
+      
+      END IF;
 END$$
 DELIMITER ;
 
 DELIMITER $$
 CREATE PROCEDURE ConfirmarOrden(IN IdOrden INT, IN FormaPago CHAR(1), IN IdRepartidor INT)
-ConfirmarOrden:BEGIN
+BEGIN
+  DECLARE EstadoActual VARCHAR(255);
   DECLARE restauranteId VARCHAR(255);
   DECLARE repartidorId INT;
+  DECLARE clienteNit VARCHAR(255);
+  DECLARE montoTotal DECIMAL(10,2);
+  DECLARE lugar VARCHAR(255);
+  DECLARE noSerie VARCHAR(255);
+ 
+  SELECT estado INTO EstadoActual FROM orden WHERE id_orden = IdOrden;
 
   SELECT id_restaurante INTO restauranteId FROM orden WHERE id_orden = IdOrden;
 
   SELECT id_empleado INTO repartidorId FROM empleado 
-  WHERE id_restaurante = restauranteId 
-  LIMIT 1;
-  
+  WHERE id_empleado = IdRepartidor AND id_restaurante = restauranteId;
+
+  SELECT nit INTO clienteNit FROM cliente WHERE dpi = (SELECT dpi FROM orden WHERE id_orden = IdOrden);
+
   IF (NOT EXISTS(SELECT id_orden FROM orden WHERE id_orden = IdOrden)) THEN
     SELECT "Error al confirmar orden. La orden especificada no existe";
-    LEAVE ConfirmarOrden;
-  ELSEIF (FormaPago <> 'E' AND FormaPago <> 'T') THEN
+  ELSEIF (FormaPago != 'E' AND FormaPago != 'T') THEN
     SELECT "Error al confirmar orden. La forma de pago no es válida";
-    LEAVE ConfirmarOrden;
   ELSEIF (NOT EXISTS(SELECT id_empleado FROM empleado WHERE id_empleado = IdRepartidor)) THEN
     SELECT "Error al confirmar orden. El repartidor no existe";
-    LEAVE ConfirmarOrden;
-  ELSEIF (repartidorId <> IdRepartidor) THEN
+  ELSEIF (repartidorId IS NULL) THEN
     SELECT "Error al confirmar orden. El repartidor no trabaja en el restaurante de la orden";
-    LEAVE ConfirmarOrden;
+  ELSEIF EstadoActual != 'AGREGANDO' THEN
+    SELECT "Error al confirmar orden. El estado de la orden no es AGREGANDO";
   ELSE
+  
+    SELECT SUM(item.cantidad * producto.precio) INTO montoTotal FROM item
+      INNER JOIN producto ON item.id_producto = producto.id_producto
+      WHERE item.id_orden = IdOrden;
+    SET montoTotal = montoTotal + (montoTotal * 0.12);
+
+    SELECT municipio INTO lugar FROM direccion WHERE dpi = (SELECT dpi FROM orden WHERE id_orden = IdOrden LIMIT 1) LIMIT 1;
+
+    SELECT CONCAT(YEAR(NOW()), '-', IdOrden) INTO noSerie;
+    INSERT INTO factura (no_serie, monto_total, lugar, fecha_actual, nit, forma_pago, id_orden)
+    VALUES (noSerie, montoTotal, lugar, NOW(), IFNULL(clienteNit, 'C/F'), IF(FormaPago = 'E', 'Efectivo', 'Tarjeta'), IdOrden);
+
+    -- Actualizar la orden
     UPDATE orden SET estado = 'EN CAMINO', repartidor = IdRepartidor WHERE id_orden = IdOrden;
+    SELECT "Orden confirmada exitosamente";
   END IF;
 END$$
 DELIMITER ;
 
-
 DELIMITER $$
-CREATE PROCEDURE FinalizarOrden (IN id_orden INT)
-FinalizarOrden:BEGIN
+CREATE PROCEDURE FinalizarOrden (IN p_id_orden INT)
+FinalizarOrden1:BEGIN
     DECLARE estado_actual VARCHAR(255);
     DECLARE fecha_entrega_actual DATETIME;
     
     -- Verificar si la orden existe y obtener su estado actual y fecha de entrega
-    SELECT estado, fecha_entrega INTO estado_actual, fecha_entrega_actual FROM orden WHERE id_orden = id_orden;
+    SELECT estado, fecha_entrega INTO estado_actual, fecha_entrega_actual FROM orden WHERE id_orden = p_id_orden;
     IF estado_actual IS NULL THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'La orden no existe';
-        LEAVE FinalizarOrden;
+      SELECT "Error al finalizar orden. La orden no existe";
+        LEAVE FinalizarOrden1;
     END IF;
 
     -- Verificar si el estado actual es "EN CAMINO"
-    IF estado_actual <> 'EN CAMINO' THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'La orden no se puede finalizar porque su estado actual no es "EN CAMINO"';
-        LEAVE FinalizarOrden;
+    IF estado_actual != 'EN CAMINO' THEN
+        SELECT "Error al finalizar orden. El estado actual de la orden no es EN CAMINO";
+        LEAVE FinalizarOrden1;
     END IF;
 
     -- Actualizar el estado de la orden a "ENTREGADA" y establecer la fecha de entrega
-    UPDATE orden SET estado = 'ENTREGADA', fecha_entrega = NOW() WHERE id_orden = id_orden;
+    UPDATE orden SET estado = 'ENTREGADA', fecha_entrega = NOW() WHERE id_orden = p_id_orden;
+    SELECT "Orden finalizada exitosamente";
 END$$
 DELIMITER ;
